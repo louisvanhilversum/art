@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Rotating Spheres</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script>
+        // Set up the scene, camera, and renderer
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x101010);
+
+        const aspectRatio = 16 / 9;
+        const camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Add lighting
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0xffffff, 2, 100); // Increased intensity
+        pointLight.position.set(10, 5, 5); // Start position
+        pointLight.castShadow = true;
+        scene.add(pointLight);
+
+        // Create an array to store our spheres
+        const spheres = [];
+        const sphereRadius = 0.5;
+
+        // Create multiple spheres
+        for (let i = 0; i < 60; i++) {
+            const geometry = new THREE.SphereGeometry(sphereRadius, 32, 32);
+            const material = new THREE.MeshStandardMaterial({
+                color: Math.random() * 0xffffff,
+                metalness: 0.8,
+                roughness: 0.2,
+                wireframe: false
+            });
+            const sphere = new THREE.Mesh(geometry, material);
+
+            // Position spheres randomly within a closer range
+            sphere.position.x = (Math.random() - 0.5) * 10;
+            sphere.position.y = (Math.random() - 0.5) * 10;
+            sphere.position.z = (Math.random() - 0.5) * 10;
+
+            sphere.castShadow = true;
+            sphere.receiveShadow = true;
+
+            // Initialize velocity with increased speed
+            sphere.velocity = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.05,
+                (Math.random() - 0.5) * 0.05,
+                (Math.random() - 0.5) * 0.05
+            );
+
+            scene.add(sphere);
+            spheres.push(sphere);
+        }
+
+        // Adjust camera position to be closer to the spheres
+        camera.position.z = 15;
+
+        // Array to store lines
+        const lines = [];
+
+        // Function to create a line between two spheres
+        function createLine(sphere1, sphere2) {
+            const geometry = new THREE.BufferGeometry().setFromPoints([sphere1.position, sphere2.position]);
+            const material = new THREE.LineBasicMaterial({ color: 0xffffff });
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+            lines.push({ line, sphere1, sphere2 });
+        }
+
+        // Function to remove a line between two spheres
+        function removeLine(lineData) {
+            scene.remove(lineData.line);
+            lineData.line.geometry.dispose();
+        }
+
+        // Function to shuffle an array
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        // Variables for connecting and disconnecting spheres
+        let connectIndex = 0;
+        let disconnectIndex = 0;
+        let startConnecting = false;
+        let allConnected = false;
+        let lightDirection = -1;
+
+        // Animation function
+        function animate() {
+            requestAnimationFrame(animate);
+
+            spheres.forEach(sphere => {
+                sphere.rotation.x += 0.01;
+                sphere.rotation.y += 0.01;
+
+                // Update position based on velocity
+                sphere.position.add(sphere.velocity);
+
+                // Keep spheres within the visible range
+                sphere.position.x = Math.max(-5, Math.min(5, sphere.position.x));
+                sphere.position.y = Math.max(-5, Math.min(5, sphere.position.y));
+                sphere.position.z = Math.max(-5, Math.min(5, sphere.position.z));
+
+                // Prevent spheres from overlapping and implement bouncing behavior
+                spheres.forEach(otherSphere => {
+                    if (sphere !== otherSphere) {
+                        const distance = sphere.position.distanceTo(otherSphere.position);
+                        if (distance < sphereRadius * 2) {
+                            const direction = sphere.position.clone().sub(otherSphere.position).normalize();
+                            sphere.position.add(direction.multiplyScalar(sphereRadius * 2 - distance));
+                            sphere.velocity.reflect(direction);
+                            otherSphere.velocity.reflect(direction.negate());
+                        }
+                    }
+                });
+            });
+
+            // Update lines to follow the spheres
+            lines.forEach(lineData => {
+                const { line, sphere1, sphere2 } = lineData;
+                line.geometry.setFromPoints([sphere1.position, sphere2.position]);
+                line.geometry.attributes.position.needsUpdate = true;
+            });
+
+            // Move the light source slowly from right to left
+            pointLight.position.x += lightDirection * 0.01;
+            if (pointLight.position.x < -10 || pointLight.position.x > 10) {
+                lightDirection *= -1; // Reverse direction
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Function to start connecting spheres
+        function startConnectingSpheres() {
+            const connectInterval = setInterval(() => {
+                if (connectIndex < spheres.length - 1) {
+                    createLine(spheres[connectIndex], spheres[connectIndex + 1]);
+                    connectIndex++;
+                } else {
+                    clearInterval(connectInterval);
+                    allConnected = true;
+                    disconnectIndex = 0;
+                    startDisconnectingSpheres();
+                }
+            }, 1000);
+        }
+
+        // Function to start disconnecting spheres
+        function startDisconnectingSpheres() {
+            const disconnectInterval = setInterval(() => {
+                if (disconnectIndex < lines.length) {
+                    removeLine(lines[disconnectIndex]);
+                    lines.splice(disconnectIndex, 1);
+                } else {
+                    clearInterval(disconnectInterval);
+                    allConnected = false;
+                    connectIndex = 0;
+                    disconnectIndex = 0;
+
+                    // Reset velocities to make spheres move freely again
+                    spheres.forEach(sphere => {
+                        sphere.velocity = new THREE.Vector3(
+                            (Math.random() - 0.5) * 0.05,
+                            (Math.random() - 0.5) * 0.05,
+                            (Math.random() - 0.5) * 0.05
+                        );
+                    });
+
+                    setTimeout(() => {
+                        shuffleArray(spheres);
+                        startConnectingSpheres();
+                    }, 3000);
+                }
+            }, 1000);
+        }
+
+        // Start connecting spheres after a 3-second delay
+        setTimeout(startConnectingSpheres, 3000);
+
+        // Handle window resizing
+        window.addEventListener('resize', () => {
+            const newWidth = window.innerWidth;
+            const newHeight = window.innerHeight;
+            camera.aspect = aspectRatio;
+            camera.updateProjectionMatrix();
+            renderer.setSize(newWidth, newHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
